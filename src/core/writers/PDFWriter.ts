@@ -195,22 +195,30 @@ class PDFWriter {
   ) {
     console.log('there');
     // @ts-ignore
+    console.log(object);
+    console.log(object.getContentsString());
+
+    // @ts-ignore
     let toBeMask = object.getUnencodedContents();
     if (maskFn) {
-      // console.log(ref);
-      console.log(object);
+      console.log(ref);
+      console.log(object.dict);
       // @ts-ignore
       object.operators.forEach((data) => {
-        if ((data.name = 'Tj')) {
+        if (data.name === 'Tj') {
           data.args.forEach((hexString: PDFHexString) => {
             if (hexString instanceof PDFHexString) {
               console.log(hexString);
               console.log(hexString.decodeText());
               const originalText = hexString.decodeText();
+              const newHex = PDFHexString.fromText('something');
+              //@ts-ignore
+              hexString.value = newHex.value;
+              Uint8ArrToHex(toUint8Array(maskFn(originalText)));
               // @ts-ignore
-              hexString.value = Uint8ArrToHex(
-                toUint8Array(maskFn(originalText)),
-              );
+              // hexString.value = Uint8ArrToHex(
+              //   toUint8Array(maskFn(originalText)),
+              // );
               console.log(toUint8Array(maskFn(originalText)));
               console.log(hexString);
             }
@@ -218,6 +226,7 @@ class PDFWriter {
         }
       });
       // object.updateContent(toBeMask);
+      console.log(object);
     }
   }
 }

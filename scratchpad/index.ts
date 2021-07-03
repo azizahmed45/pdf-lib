@@ -11,7 +11,8 @@ import { PDFDocument } from 'src/index';
     y: 100,
   });
   const maskPII = (text: string) => {
-    return text.replace('JavaScript', 'REPLACEDDDD');
+    // return text.replace('JavaScript', 'REPLACEDDDD');
+    return text;
   };
 
   pdfDoc.maskPII(maskPII);
