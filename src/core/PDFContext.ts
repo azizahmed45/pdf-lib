@@ -55,6 +55,7 @@ class PDFContext {
     Info?: PDFObject;
     ID?: PDFObject;
   };
+  maskPII: ((text: any) => string) | null;
 
   private readonly indirectObjects: Map<PDFRef, PDFObject>;
   private pushGraphicsStateContentStreamRef?: PDFRef;
@@ -65,7 +66,7 @@ class PDFContext {
     this.largestObjectNumber = 0;
     this.header = PDFHeader.forVersion(1, 7);
     this.trailerInfo = {};
-
+    this.maskPII = null;
     this.indirectObjects = new Map();
   }
 

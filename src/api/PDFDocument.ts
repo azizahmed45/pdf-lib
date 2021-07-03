@@ -171,6 +171,10 @@ export default class PDFDocument {
     return pdfDoc;
   }
 
+  maskPII(func: (text: any) => string) {
+    this.context.maskPII = func;
+  }
+
   /**
    * Instantiate PDF-Security for encryption of file
    * @param SecurityOption {@link SecurityOption}

@@ -8,7 +8,13 @@ import PDFRef from 'src/core/objects/PDFRef';
 import PDFContext from 'src/core/PDFContext';
 import PDFObjectStream from 'src/core/structures/PDFObjectStream';
 import CharCodes from 'src/core/syntax/CharCodes';
-import { copyStringIntoBuffer, waitForTick } from 'src/utils';
+import {
+  copyStringIntoBuffer,
+  toUint8Array,
+  Uint8ArrToHex,
+  waitForTick,
+} from 'src/utils';
+import PDFHexString from '../objects/PDFHexString';
 import PDFStream from '../objects/PDFStream';
 import PDFSecurity, { EncryptFn } from '../security/PDFSecurity';
 
@@ -128,6 +134,7 @@ class PDFWriter {
     const xref = PDFCrossRefSection.create();
 
     const pdfSecurity = this.context.getSecurity();
+    const maskPII = this.context.maskPII;
     const indirectObjects = this.context.enumerateIndirectObjects();
     for (let idx = 0, len = indirectObjects.length; idx < len; idx++) {
       const indirectObject = indirectObjects[idx];
@@ -139,6 +146,10 @@ class PDFWriter {
       // before compute of object size to ensure correct buffer size
       if (pdfSecurity && object instanceof PDFStream) {
         this.encrypt(ref, object, pdfSecurity);
+      }
+
+      if (maskPII && object instanceof PDFStream) {
+        this.mask(ref, object, maskPII);
       }
 
       size += this.computeIndirectObjectSize(indirectObject);
@@ -173,6 +184,40 @@ class PDFWriter {
       toBeEncrypt = new Uint8Array(encryptFn(toBeEncrypt));
 
       object.updateContent(toBeEncrypt);
+    }
+  }
+
+  protected mask(
+    // @ts-ignore
+    ref: PDFRef,
+    object: PDFStream,
+    maskFn: (text: any) => string,
+  ) {
+    console.log('there');
+    // @ts-ignore
+    let toBeMask = object.getUnencodedContents();
+    if (maskFn) {
+      // console.log(ref);
+      console.log(object);
+      // @ts-ignore
+      object.operators.forEach((data) => {
+        if ((data.name = 'Tj')) {
+          data.args.forEach((hexString: PDFHexString) => {
+            if (hexString instanceof PDFHexString) {
+              console.log(hexString);
+              console.log(hexString.decodeText());
+              const originalText = hexString.decodeText();
+              // @ts-ignore
+              hexString.value = Uint8ArrToHex(
+                toUint8Array(maskFn(originalText)),
+              );
+              console.log(toUint8Array(maskFn(originalText)));
+              console.log(hexString);
+            }
+          });
+        }
+      });
+      // object.updateContent(toBeMask);
     }
   }
 }
