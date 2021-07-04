@@ -78,7 +78,7 @@ class PDFStream extends PDFObject {
     buffer[offset++] = CharCodes.Newline;
 
     const contents = this.getContents();
-    console.log(this.toString());
+    // console.log(this.toString());
     for (let idx = 0, len = contents.length; idx < len; idx++) {
       buffer[offset++] = contents[idx];
     }

@@ -1,3 +1,5 @@
+import { FontNames } from '@pdf-lib/standard-fonts';
+import { StandardFonts } from 'src/api';
 import PDFCrossRefSection from 'src/core/document/PDFCrossRefSection';
 import PDFHeader from 'src/core/document/PDFHeader';
 import PDFTrailer from 'src/core/document/PDFTrailer';
@@ -14,6 +16,7 @@ import {
   Uint8ArrToHex,
   waitForTick,
 } from 'src/utils';
+import StandardFontEmbedder from '../embedders/StandardFontEmbedder';
 import PDFHexString from '../objects/PDFHexString';
 import PDFStream from '../objects/PDFStream';
 import PDFSecurity, { EncryptFn } from '../security/PDFSecurity';
@@ -130,7 +133,6 @@ class PDFWriter {
     const header = this.context.header;
 
     let size = header.sizeInBytes() + 2;
-
     const xref = PDFCrossRefSection.create();
 
     const pdfSecurity = this.context.getSecurity();
@@ -193,40 +195,50 @@ class PDFWriter {
     object: PDFStream,
     maskFn: (text: any) => string,
   ) {
-    console.log('there');
+    // console.log('there');
     // @ts-ignore
-    console.log(object);
-    console.log(object.getContentsString());
-
+    // console.log(object);
+    // console.log(object.getContentsString());
+    // console.log('here', object.getContents());
     // @ts-ignore
     let toBeMask = object.getUnencodedContents();
     if (maskFn) {
-      console.log(ref);
-      console.log(object.dict);
       // @ts-ignore
       object.operators.forEach((data) => {
         if (data.name === 'Tj') {
           data.args.forEach((hexString: PDFHexString) => {
             if (hexString instanceof PDFHexString) {
+              const embedder = StandardFontEmbedder.for(
+                (StandardFonts.Helvetica as unknown) as FontNames,
+              );
               console.log(hexString);
-              console.log(hexString.decodeText());
               const originalText = hexString.decodeText();
-              const newHex = PDFHexString.fromText('something');
+              const text = [maskFn(originalText)];
+              const encodedLines = new Array(text.length) as PDFHexString[];
+
+              for (let idx = 0, len = text.length; idx < len; idx++) {
+                encodedLines[idx] = embedder.encodeText(text[idx]);
+              }
+
+              const encodedText = embedder.encodeText('originalText');
+              encodedText;
               //@ts-ignore
-              hexString.value = newHex.value;
+              hexString.value = encodedLines[0].value;
               Uint8ArrToHex(toUint8Array(maskFn(originalText)));
               // @ts-ignore
               // hexString.value = Uint8ArrToHex(
               //   toUint8Array(maskFn(originalText)),
               // );
-              console.log(toUint8Array(maskFn(originalText)));
-              console.log(hexString);
+              // console.log(hexString);
             }
           });
         }
       });
       // object.updateContent(toBeMask);
-      console.log(object);
+      // console.log(object);
+      // const x = object.getContentsString();
+      // console.log(x);
+      // console.log('here', Buffer.from(object.getContents()));
     }
   }
 }

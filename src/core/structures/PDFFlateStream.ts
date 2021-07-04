@@ -14,7 +14,6 @@ class PDFFlateStream extends PDFStream {
     super(dict);
 
     this.encode = encode;
-    this.encode = false;
 
     if (encode) dict.set(PDFName.of('Filter'), PDFName.of('FlateDecode'));
     this.contentsCache = Cache.populatedBy(this.computeContents);
