@@ -20,6 +20,7 @@ import StandardFontEmbedder from '../embedders/StandardFontEmbedder';
 import PDFHexString from '../objects/PDFHexString';
 import PDFStream from '../objects/PDFStream';
 import PDFSecurity, { EncryptFn } from '../security/PDFSecurity';
+import PDFContentStream from '../structures/PDFContentStream';
 
 export interface SerializationInfo {
   size: number;
@@ -195,17 +196,12 @@ class PDFWriter {
     object: PDFStream,
     maskFn: (text: any) => string,
   ) {
-    // console.log('there');
-    // @ts-ignore
-    // console.log(object);
-    // console.log(object.getContentsString());
-    // console.log('here', object.getContents());
-    // @ts-ignore
-    let toBeMask = object.getUnencodedContents();
-    if (maskFn) {
+    if (maskFn && object instanceof PDFContentStream) {
       // @ts-ignore
       object.operators.forEach((data) => {
+        // @ts-ignore
         if (data.name === 'Tj') {
+          // @ts-ignore
           data.args.forEach((hexString: PDFHexString) => {
             if (hexString instanceof PDFHexString) {
               const embedder = StandardFontEmbedder.for(
@@ -225,20 +221,10 @@ class PDFWriter {
               //@ts-ignore
               hexString.value = encodedLines[0].value;
               Uint8ArrToHex(toUint8Array(maskFn(originalText)));
-              // @ts-ignore
-              // hexString.value = Uint8ArrToHex(
-              //   toUint8Array(maskFn(originalText)),
-              // );
-              // console.log(hexString);
             }
           });
         }
       });
-      // object.updateContent(toBeMask);
-      // console.log(object);
-      // const x = object.getContentsString();
-      // console.log(x);
-      // console.log('here', Buffer.from(object.getContents()));
     }
   }
 }
