@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 var tslib_1 = require("tslib");
 var crypto_js_1 = tslib_1.__importDefault(require("crypto-js"));
-var saslprep_1 = tslib_1.__importDefault(require("saslprep"));
 /*
 Represent the entire security class for the PDF Document
 Output from `_setupEncryption` is the Encryption Dictionary
@@ -390,7 +389,7 @@ var processPasswordR2R3R4 = function (password) {
 };
 var processPasswordR5 = function (password) {
     if (password === void 0) { password = ''; }
-    password = unescape(encodeURIComponent(saslprep_1.default(password)));
+    password = unescape(encodeURIComponent(password));
     var length = Math.min(127, password.length);
     var out = Buffer.alloc(length);
     for (var i = 0; i < length; i++) {

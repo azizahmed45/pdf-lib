@@ -1,5 +1,4 @@
 import CryptoJS from 'crypto-js';
-import saslprep from 'saslprep';
 /*
 Represent the entire security class for the PDF Document
 Output from `_setupEncryption` is the Encryption Dictionary
@@ -387,7 +386,7 @@ var processPasswordR2R3R4 = function (password) {
 };
 var processPasswordR5 = function (password) {
     if (password === void 0) { password = ''; }
-    password = unescape(encodeURIComponent(saslprep(password)));
+    password = unescape(encodeURIComponent(password));
     var length = Math.min(127, password.length);
     var out = Buffer.alloc(length);
     for (var i = 0; i < length; i++) {

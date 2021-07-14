@@ -1,6 +1,4 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 
 /*! *****************************************************************************
 Copyright (c) Microsoft Corporation.
@@ -322,7 +320,7 @@ var findLastMatch = function (value, regex) {
     return { match: lastMatch, pos: position };
 };
 
-var last$1 = function (array) { return array[array.length - 1]; };
+var last = function (array) { return array[array.length - 1]; };
 // export const dropLast = <T>(array: T[]): T[] =>
 // array.slice(0, array.length - 1);
 var typedArrayFor = function (value) {
@@ -14394,451 +14392,6 @@ var cryptoJs = createCommonjsModule(function (module, exports) {
 }));
 });
 
-var memoryPager = Pager;
-
-function Pager (pageSize, opts) {
-  if (!(this instanceof Pager)) return new Pager(pageSize, opts)
-
-  this.length = 0;
-  this.updates = [];
-  this.path = new Uint16Array(4);
-  this.pages = new Array(32768);
-  this.maxPages = this.pages.length;
-  this.level = 0;
-  this.pageSize = pageSize || 1024;
-  this.deduplicate = opts ? opts.deduplicate : null;
-  this.zeros = this.deduplicate ? alloc$1(this.deduplicate.length) : null;
-}
-
-Pager.prototype.updated = function (page) {
-  while (this.deduplicate && page.buffer[page.deduplicate] === this.deduplicate[page.deduplicate]) {
-    page.deduplicate++;
-    if (page.deduplicate === this.deduplicate.length) {
-      page.deduplicate = 0;
-      if (page.buffer.equals && page.buffer.equals(this.deduplicate)) page.buffer = this.deduplicate;
-      break
-    }
-  }
-  if (page.updated || !this.updates) return
-  page.updated = true;
-  this.updates.push(page);
-};
-
-Pager.prototype.lastUpdate = function () {
-  if (!this.updates || !this.updates.length) return null
-  var page = this.updates.pop();
-  page.updated = false;
-  return page
-};
-
-Pager.prototype._array = function (i, noAllocate) {
-  if (i >= this.maxPages) {
-    if (noAllocate) return
-    grow(this, i);
-  }
-
-  factor(i, this.path);
-
-  var arr = this.pages;
-
-  for (var j = this.level; j > 0; j--) {
-    var p = this.path[j];
-    var next = arr[p];
-
-    if (!next) {
-      if (noAllocate) return
-      next = arr[p] = new Array(32768);
-    }
-
-    arr = next;
-  }
-
-  return arr
-};
-
-Pager.prototype.get = function (i, noAllocate) {
-  var arr = this._array(i, noAllocate);
-  var first = this.path[0];
-  var page = arr && arr[first];
-
-  if (!page && !noAllocate) {
-    page = arr[first] = new Page(i, alloc$1(this.pageSize));
-    if (i >= this.length) this.length = i + 1;
-  }
-
-  if (page && page.buffer === this.deduplicate && this.deduplicate && !noAllocate) {
-    page.buffer = copy(page.buffer);
-    page.deduplicate = 0;
-  }
-
-  return page
-};
-
-Pager.prototype.set = function (i, buf) {
-  var arr = this._array(i, false);
-  var first = this.path[0];
-
-  if (i >= this.length) this.length = i + 1;
-
-  if (!buf || (this.zeros && buf.equals && buf.equals(this.zeros))) {
-    arr[first] = undefined;
-    return
-  }
-
-  if (this.deduplicate && buf.equals && buf.equals(this.deduplicate)) {
-    buf = this.deduplicate;
-  }
-
-  var page = arr[first];
-  var b = truncate(buf, this.pageSize);
-
-  if (page) page.buffer = b;
-  else arr[first] = new Page(i, b);
-};
-
-Pager.prototype.toBuffer = function () {
-  var list = new Array(this.length);
-  var empty = alloc$1(this.pageSize);
-  var ptr = 0;
-
-  while (ptr < list.length) {
-    var arr = this._array(ptr, true);
-    for (var i = 0; i < 32768 && ptr < list.length; i++) {
-      list[ptr++] = (arr && arr[i]) ? arr[i].buffer : empty;
-    }
-  }
-
-  return Buffer.concat(list)
-};
-
-function grow (pager, index) {
-  while (pager.maxPages < index) {
-    var old = pager.pages;
-    pager.pages = new Array(32768);
-    pager.pages[0] = old;
-    pager.level++;
-    pager.maxPages *= 32768;
-  }
-}
-
-function truncate (buf, len) {
-  if (buf.length === len) return buf
-  if (buf.length > len) return buf.slice(0, len)
-  var cpy = alloc$1(len);
-  buf.copy(cpy);
-  return cpy
-}
-
-function alloc$1 (size) {
-  if (Buffer.alloc) return Buffer.alloc(size)
-  var buf = new Buffer(size);
-  buf.fill(0);
-  return buf
-}
-
-function copy (buf) {
-  var cpy = Buffer.allocUnsafe ? Buffer.allocUnsafe(buf.length) : new Buffer(buf.length);
-  buf.copy(cpy);
-  return cpy
-}
-
-function Page (i, buf) {
-  this.offset = i * buf.length;
-  this.buffer = buf;
-  this.updated = false;
-  this.deduplicate = 0;
-}
-
-function factor (n, out) {
-  n = (n - (out[0] = (n & 32767))) / 32768;
-  n = (n - (out[1] = (n & 32767))) / 32768;
-  out[3] = ((n - (out[2] = (n & 32767))) / 32768) & 32767;
-}
-
-var sparseBitfield = Bitfield;
-
-function Bitfield (opts) {
-  if (!(this instanceof Bitfield)) return new Bitfield(opts)
-  if (!opts) opts = {};
-  if (Buffer.isBuffer(opts)) opts = {buffer: opts};
-
-  this.pageOffset = opts.pageOffset || 0;
-  this.pageSize = opts.pageSize || 1024;
-  this.pages = opts.pages || memoryPager(this.pageSize);
-
-  this.byteLength = this.pages.length * this.pageSize;
-  this.length = 8 * this.byteLength;
-
-  if (!powerOfTwo(this.pageSize)) throw new Error('The page size should be a power of two')
-
-  this._trackUpdates = !!opts.trackUpdates;
-  this._pageMask = this.pageSize - 1;
-
-  if (opts.buffer) {
-    for (var i = 0; i < opts.buffer.length; i += this.pageSize) {
-      this.pages.set(i / this.pageSize, opts.buffer.slice(i, i + this.pageSize));
-    }
-    this.byteLength = opts.buffer.length;
-    this.length = 8 * this.byteLength;
-  }
-}
-
-Bitfield.prototype.get = function (i) {
-  var o = i & 7;
-  var j = (i - o) / 8;
-
-  return !!(this.getByte(j) & (128 >> o))
-};
-
-Bitfield.prototype.getByte = function (i) {
-  var o = i & this._pageMask;
-  var j = (i - o) / this.pageSize;
-  var page = this.pages.get(j, true);
-
-  return page ? page.buffer[o + this.pageOffset] : 0
-};
-
-Bitfield.prototype.set = function (i, v) {
-  var o = i & 7;
-  var j = (i - o) / 8;
-  var b = this.getByte(j);
-
-  return this.setByte(j, v ? b | (128 >> o) : b & (255 ^ (128 >> o)))
-};
-
-Bitfield.prototype.toBuffer = function () {
-  var all = alloc(this.pages.length * this.pageSize);
-
-  for (var i = 0; i < this.pages.length; i++) {
-    var next = this.pages.get(i, true);
-    var allOffset = i * this.pageSize;
-    if (next) next.buffer.copy(all, allOffset, this.pageOffset, this.pageOffset + this.pageSize);
-  }
-
-  return all
-};
-
-Bitfield.prototype.setByte = function (i, b) {
-  var o = i & this._pageMask;
-  var j = (i - o) / this.pageSize;
-  var page = this.pages.get(j, false);
-
-  o += this.pageOffset;
-
-  if (page.buffer[o] === b) return false
-  page.buffer[o] = b;
-
-  if (i >= this.byteLength) {
-    this.byteLength = i + 1;
-    this.length = this.byteLength * 8;
-  }
-
-  if (this._trackUpdates) this.pages.updated(page);
-
-  return true
-};
-
-function alloc (n) {
-  if (Buffer.alloc) return Buffer.alloc(n)
-  var b = new Buffer(n);
-  b.fill(0);
-  return b
-}
-
-function powerOfTwo (x) {
-  return !(x & (x - 1))
-}
-
-/* eslint-disable-next-line security/detect-non-literal-fs-filename */
-const memory = fs.readFileSync(path.resolve(__dirname, '../code-points.mem'));
-let offset = 0;
-
-/**
- * Loads each code points sequence from buffer.
- * @returns {bitfield}
- */
-function read() {
-  const size = memory.readUInt32BE(offset);
-  offset += 4;
-
-  const codepoints = memory.slice(offset, offset + size);
-  offset += size;
-
-  return sparseBitfield({ buffer: codepoints });
-}
-
-const unassigned_code_points$1 = read();
-const commonly_mapped_to_nothing$1 = read();
-const non_ASCII_space_characters$1 = read();
-const prohibited_characters$1 = read();
-const bidirectional_r_al$1 = read();
-const bidirectional_l$1 = read();
-
-var memoryCodePoints = {
-  unassigned_code_points: unassigned_code_points$1,
-  commonly_mapped_to_nothing: commonly_mapped_to_nothing$1,
-  non_ASCII_space_characters: non_ASCII_space_characters$1,
-  prohibited_characters: prohibited_characters$1,
-  bidirectional_r_al: bidirectional_r_al$1,
-  bidirectional_l: bidirectional_l$1,
-};
-
-const {
-  unassigned_code_points,
-  commonly_mapped_to_nothing,
-  non_ASCII_space_characters,
-  prohibited_characters,
-  bidirectional_r_al,
-  bidirectional_l,
-} = memoryCodePoints;
-
-var saslprep_1 = saslprep;
-
-// 2.1.  Mapping
-
-/**
- * non-ASCII space characters [StringPrep, C.1.2] that can be
- * mapped to SPACE (U+0020)
- */
-const mapping2space = non_ASCII_space_characters;
-
-/**
- * the "commonly mapped to nothing" characters [StringPrep, B.1]
- * that can be mapped to nothing.
- */
-const mapping2nothing = commonly_mapped_to_nothing;
-
-// utils
-const getCodePoint = character => character.codePointAt(0);
-const first = x => x[0];
-const last = x => x[x.length - 1];
-
-/**
- * Convert provided string into an array of Unicode Code Points.
- * Based on https://stackoverflow.com/a/21409165/1556249
- * and https://www.npmjs.com/package/code-point-at.
- * @param {string} input
- * @returns {number[]}
- */
-function toCodePoints(input) {
-  const codepoints = [];
-  const size = input.length;
-
-  for (let i = 0; i < size; i += 1) {
-    const before = input.charCodeAt(i);
-
-    if (before >= 0xd800 && before <= 0xdbff && size > i + 1) {
-      const next = input.charCodeAt(i + 1);
-
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        codepoints.push((before - 0xd800) * 0x400 + next - 0xdc00 + 0x10000);
-        i += 1;
-        continue;
-      }
-    }
-
-    codepoints.push(before);
-  }
-
-  return codepoints;
-}
-
-/**
- * SASLprep.
- * @param {string} input
- * @param {Object} opts
- * @param {boolean} opts.allowUnassigned
- * @returns {string}
- */
-function saslprep(input, opts = {}) {
-  if (typeof input !== 'string') {
-    throw new TypeError('Expected string.');
-  }
-
-  if (input.length === 0) {
-    return '';
-  }
-
-  // 1. Map
-  const mapped_input = toCodePoints(input)
-    // 1.1 mapping to space
-    .map(character => (mapping2space.get(character) ? 0x20 : character))
-    // 1.2 mapping to nothing
-    .filter(character => !mapping2nothing.get(character));
-
-  // 2. Normalize
-  const normalized_input = String.fromCodePoint
-    .apply(null, mapped_input)
-    .normalize('NFKC');
-
-  const normalized_map = toCodePoints(normalized_input);
-
-  // 3. Prohibit
-  const hasProhibited = normalized_map.some(character =>
-    prohibited_characters.get(character)
-  );
-
-  if (hasProhibited) {
-    throw new Error(
-      'Prohibited character, see https://tools.ietf.org/html/rfc4013#section-2.3'
-    );
-  }
-
-  // Unassigned Code Points
-  if (opts.allowUnassigned !== true) {
-    const hasUnassigned = normalized_map.some(character =>
-      unassigned_code_points.get(character)
-    );
-
-    if (hasUnassigned) {
-      throw new Error(
-        'Unassigned code point, see https://tools.ietf.org/html/rfc4013#section-2.5'
-      );
-    }
-  }
-
-  // 4. check bidi
-
-  const hasBidiRAL = normalized_map.some(character =>
-    bidirectional_r_al.get(character)
-  );
-
-  const hasBidiL = normalized_map.some(character =>
-    bidirectional_l.get(character)
-  );
-
-  // 4.1 If a string contains any RandALCat character, the string MUST NOT
-  // contain any LCat character.
-  if (hasBidiRAL && hasBidiL) {
-    throw new Error(
-      'String must not contain RandALCat and LCat at the same time,' +
-        ' see https://tools.ietf.org/html/rfc3454#section-6'
-    );
-  }
-
-  /**
-   * 4.2 If a string contains any RandALCat character, a RandALCat
-   * character MUST be the first character of the string, and a
-   * RandALCat character MUST be the last character of the string.
-   */
-
-  const isFirstBidiRAL = bidirectional_r_al.get(
-    getCodePoint(first(normalized_input))
-  );
-  const isLastBidiRAL = bidirectional_r_al.get(
-    getCodePoint(last(normalized_input))
-  );
-
-  if (hasBidiRAL && !(isFirstBidiRAL && isLastBidiRAL)) {
-    throw new Error(
-      'Bidirectional RandALCat character must be the first and the last' +
-        ' character of the string, see https://tools.ietf.org/html/rfc3454#section-6'
-    );
-  }
-
-  return normalized_input;
-}
-
 /*
 Represent the entire security class for the PDF Document
 Output from `_setupEncryption` is the Encryption Dictionary
@@ -15226,7 +14779,7 @@ var processPasswordR2R3R4 = function (password) {
 };
 var processPasswordR5 = function (password) {
     if (password === void 0) { password = ''; }
-    password = unescape(encodeURIComponent(saslprep_1(password)));
+    password = unescape(encodeURIComponent(password));
     var length = Math.min(127, password.length);
     var out = Buffer.alloc(length);
     for (var i = 0; i < length; i++) {
@@ -17563,8 +17116,8 @@ var PDFObjectStream = /** @class */ (function (_super) {
     };
     PDFObjectStream.prototype.getUnencodedContentsSize = function () {
         return (this.offsetsString.length +
-            last$1(this.offsets)[1] +
-            last$1(this.objects)[1].sizeInBytes() +
+            last(this.offsets)[1] +
+            last(this.objects)[1].sizeInBytes() +
             1);
     };
     PDFObjectStream.prototype.computeOffsetsString = function () {
@@ -17992,8 +17545,8 @@ var PDFStreamWriter = /** @class */ (function (_super) {
                         _a.label = 3;
                     case 3: return [3 /*break*/, 5];
                     case 4:
-                        chunk = last$1(compressedObjects);
-                        objectStreamRef = last$1(objectStreamRefs);
+                        chunk = last(compressedObjects);
+                        objectStreamRef = last(objectStreamRefs);
                         if (!chunk || chunk.length % this.objectsPerStream === 0) {
                             chunk = [];
                             compressedObjects.push(chunk);
@@ -33008,5 +32561,5 @@ var PDFButton = /** @class */ (function (_super) {
     return PDFButton;
 }(PDFField));
 
-export { AFRelationship, AcroButtonFlags, AcroChoiceFlags, AcroFieldFlags, AcroTextFlags, AnnotationFlags, AppearanceCharacteristics, BlendMode, Cache, CharCodes$1 as CharCodes, ColorTypes, CombedTextLayoutError, CorruptPageTreeError, CustomFontEmbedder, CustomFontSubsetEmbedder, Duplex, EncryptedPDFError, ExceededMaxLengthError, FieldAlreadyExistsError, FieldExistsAsNonTerminalError, FileEmbedder, FontkitNotRegisteredError, ForeignPageError, IndexOutOfBoundsError, InvalidAcroFieldValueError, InvalidFieldNamePartError, InvalidMaxLengthError, InvalidPDFDateStringError, InvalidTargetIndexError, JpegEmbedder, LineCapStyle, LineJoinStyle, MethodNotImplementedError, MissingCatalogError, MissingDAEntryError, MissingKeywordError, MissingOnValueCheckError, MissingPDFHeaderError, MissingPageContentsEmbeddingError, MissingTfOperatorError, MultiSelectValueError, NextByteAssertionError, NoSuchFieldError, NonFullScreenPageMode, NumberParsingError, PDFAcroButton, PDFAcroCheckBox, PDFAcroChoice, PDFAcroComboBox, PDFAcroField, PDFAcroForm, PDFAcroListBox, PDFAcroNonTerminal, PDFAcroPushButton, PDFAcroRadioButton, PDFAcroSignature, PDFAcroTerminal, PDFAcroText, PDFAnnotation, PDFArray, PDFArrayIsNotRectangleError, PDFBool, PDFButton, PDFCatalog, PDFCheckBox, PDFContentStream, PDFContext, PDFCrossRefSection, PDFCrossRefStream, PDFDict, PDFDocument, PDFDropdown, PDFEmbeddedPage, PDFField, PDFFlateStream, PDFFont, PDFForm, PDFHeader, PDFHexString, PDFImage, PDFInvalidObject, PDFInvalidObjectParsingError, PDFJavaScript, PDFName, PDFNull$1 as PDFNull, PDFNumber, PDFObject, PDFObjectCopier, PDFObjectParser, PDFObjectParsingError, PDFObjectStream, PDFObjectStreamParser, PDFOperator, Ops as PDFOperatorNames, PDFOptionList, PDFPage, PDFPageEmbedder, PDFPageLeaf, PDFPageTree, PDFParser, PDFParsingError, PDFRadioGroup, PDFRawStream, PDFRef, PDFSignature, PDFStream, PDFStreamParsingError, PDFStreamWriter, PDFString, PDFTextField, PDFTrailer, PDFTrailerDict, PDFWidgetAnnotation, PDFWriter, PDFXRefStreamParser, PageEmbeddingMismatchedContextError, PageSizes, ParseSpeeds, PngEmbedder, PrintScaling, PrivateConstructorError, ReadingDirection, RemovePageFromEmptyDocumentError, ReparseError, RichTextFieldReadError, RotationTypes, StalledParserError, StandardFontEmbedder, StandardFontValues, StandardFonts, TextAlignment, TextRenderingMode, Uint8ArrToHex, UnbalancedParenthesisError, UnexpectedFieldTypeError, UnexpectedObjectTypeError, UnrecognizedStreamTypeError, UnsupportedEncodingError, ViewerPreferences, addRandomSuffix, adjustDimsForRotation, appendBezierCurve, appendQuadraticCurve, arrayAsString, asNumber, asPDFName, asPDFNumber, assertEachIs, assertInteger, assertIs, assertIsOneOf, assertIsOneOfOrUndefined, assertIsSubset, assertMultiple, assertOrUndefined, assertPositive, assertRange, assertRangeOrUndefined, assertSecurity, backtick, beginMarkedContent, beginText, breakTextIntoLines, byAscendingId, bytesFor, canBeConvertedToUint8Array, charAtIndex, charFromCode, charFromHexCode, charSplit, cleanText, clip, clipEvenOdd, closePath, cmyk, colorToComponents, componentsToColor, concatTransformationMatrix, copyStringIntoBuffer, createPDFAcroField, createPDFAcroFields, createTypeErrorMsg, createValueErrorMsg, decodeFromBase64$1 as decodeFromBase64, decodeFromBase64DataUri, decodePDFRawStream, defaultButtonAppearanceProvider, defaultCheckBoxAppearanceProvider, defaultDropdownAppearanceProvider, defaultOptionListAppearanceProvider, defaultRadioGroupAppearanceProvider, defaultTextFieldAppearanceProvider, degrees, degreesToRadians, drawButton, drawCheckBox, drawCheckMark, drawEllipse, drawEllipsePath, drawImage, drawLine, drawLinesOfText, drawObject, drawOptionList, drawPage, drawRadioButton, drawRectangle, drawSvgPath, drawText, drawTextField, drawTextLines, encodeToBase64, endMarkedContent, endPath, endText, error, escapeRegExp, escapedNewlineChars, fill, fillAndStroke, findLastMatch, getType, grayscale, hasSurrogates, hasUtf16BOM, highSurrogate, isNewlineChar, isStandardFont, isType, isWithinBMP, last$1 as last, layoutCombedText, layoutMultilineText, layoutSinglelineText, lineSplit, lineTo, lowSurrogate, mergeIntoTypedArray, mergeLines, mergeUint8Arrays, moveText, moveTo, newlineChars, nextLine, normalizeAppearance, numberToString, padStart$1 as padStart, parseDate, pdfDocEncodingDecode, pluckIndices, popGraphicsState, pushGraphicsState, radians, radiansToDegrees, range, rectangle, rectanglesAreEqual, reduceRotation, restoreDashPattern, reverseArray, rgb, rotateAndSkewTextDegreesAndTranslate, rotateAndSkewTextRadiansAndTranslate, rotateDegrees, rotateInPlace, rotateRadians, rotateRectangle, scale, setCharacterSpacing, setCharacterSqueeze, setDashPattern, setFillingCmykColor, setFillingColor, setFillingGrayscaleColor, setFillingRgbColor, setFontAndSize, setGraphicsState, setLineCap, setLineHeight, setLineJoin, setLineWidth, setStrokingCmykColor, setStrokingColor, setStrokingGrayscaleColor, setStrokingRgbColor, setTextMatrix, setTextRenderingMode, setTextRise, setWordSpacing, showText, singleQuote, sizeInBytes, skewDegrees, skewRadians, sortedUniq, square, stroke, sum, toCharCode, toCodePoint, toDegrees, toHexString, toHexStringOfMinLength, toRadians, toUint8Array, translate, typedArrayFor, utf16Decode, utf16Encode, utf8Encode, values, waitForTick };
+export { AFRelationship, AcroButtonFlags, AcroChoiceFlags, AcroFieldFlags, AcroTextFlags, AnnotationFlags, AppearanceCharacteristics, BlendMode, Cache, CharCodes$1 as CharCodes, ColorTypes, CombedTextLayoutError, CorruptPageTreeError, CustomFontEmbedder, CustomFontSubsetEmbedder, Duplex, EncryptedPDFError, ExceededMaxLengthError, FieldAlreadyExistsError, FieldExistsAsNonTerminalError, FileEmbedder, FontkitNotRegisteredError, ForeignPageError, IndexOutOfBoundsError, InvalidAcroFieldValueError, InvalidFieldNamePartError, InvalidMaxLengthError, InvalidPDFDateStringError, InvalidTargetIndexError, JpegEmbedder, LineCapStyle, LineJoinStyle, MethodNotImplementedError, MissingCatalogError, MissingDAEntryError, MissingKeywordError, MissingOnValueCheckError, MissingPDFHeaderError, MissingPageContentsEmbeddingError, MissingTfOperatorError, MultiSelectValueError, NextByteAssertionError, NoSuchFieldError, NonFullScreenPageMode, NumberParsingError, PDFAcroButton, PDFAcroCheckBox, PDFAcroChoice, PDFAcroComboBox, PDFAcroField, PDFAcroForm, PDFAcroListBox, PDFAcroNonTerminal, PDFAcroPushButton, PDFAcroRadioButton, PDFAcroSignature, PDFAcroTerminal, PDFAcroText, PDFAnnotation, PDFArray, PDFArrayIsNotRectangleError, PDFBool, PDFButton, PDFCatalog, PDFCheckBox, PDFContentStream, PDFContext, PDFCrossRefSection, PDFCrossRefStream, PDFDict, PDFDocument, PDFDropdown, PDFEmbeddedPage, PDFField, PDFFlateStream, PDFFont, PDFForm, PDFHeader, PDFHexString, PDFImage, PDFInvalidObject, PDFInvalidObjectParsingError, PDFJavaScript, PDFName, PDFNull$1 as PDFNull, PDFNumber, PDFObject, PDFObjectCopier, PDFObjectParser, PDFObjectParsingError, PDFObjectStream, PDFObjectStreamParser, PDFOperator, Ops as PDFOperatorNames, PDFOptionList, PDFPage, PDFPageEmbedder, PDFPageLeaf, PDFPageTree, PDFParser, PDFParsingError, PDFRadioGroup, PDFRawStream, PDFRef, PDFSignature, PDFStream, PDFStreamParsingError, PDFStreamWriter, PDFString, PDFTextField, PDFTrailer, PDFTrailerDict, PDFWidgetAnnotation, PDFWriter, PDFXRefStreamParser, PageEmbeddingMismatchedContextError, PageSizes, ParseSpeeds, PngEmbedder, PrintScaling, PrivateConstructorError, ReadingDirection, RemovePageFromEmptyDocumentError, ReparseError, RichTextFieldReadError, RotationTypes, StalledParserError, StandardFontEmbedder, StandardFontValues, StandardFonts, TextAlignment, TextRenderingMode, Uint8ArrToHex, UnbalancedParenthesisError, UnexpectedFieldTypeError, UnexpectedObjectTypeError, UnrecognizedStreamTypeError, UnsupportedEncodingError, ViewerPreferences, addRandomSuffix, adjustDimsForRotation, appendBezierCurve, appendQuadraticCurve, arrayAsString, asNumber, asPDFName, asPDFNumber, assertEachIs, assertInteger, assertIs, assertIsOneOf, assertIsOneOfOrUndefined, assertIsSubset, assertMultiple, assertOrUndefined, assertPositive, assertRange, assertRangeOrUndefined, assertSecurity, backtick, beginMarkedContent, beginText, breakTextIntoLines, byAscendingId, bytesFor, canBeConvertedToUint8Array, charAtIndex, charFromCode, charFromHexCode, charSplit, cleanText, clip, clipEvenOdd, closePath, cmyk, colorToComponents, componentsToColor, concatTransformationMatrix, copyStringIntoBuffer, createPDFAcroField, createPDFAcroFields, createTypeErrorMsg, createValueErrorMsg, decodeFromBase64$1 as decodeFromBase64, decodeFromBase64DataUri, decodePDFRawStream, defaultButtonAppearanceProvider, defaultCheckBoxAppearanceProvider, defaultDropdownAppearanceProvider, defaultOptionListAppearanceProvider, defaultRadioGroupAppearanceProvider, defaultTextFieldAppearanceProvider, degrees, degreesToRadians, drawButton, drawCheckBox, drawCheckMark, drawEllipse, drawEllipsePath, drawImage, drawLine, drawLinesOfText, drawObject, drawOptionList, drawPage, drawRadioButton, drawRectangle, drawSvgPath, drawText, drawTextField, drawTextLines, encodeToBase64, endMarkedContent, endPath, endText, error, escapeRegExp, escapedNewlineChars, fill, fillAndStroke, findLastMatch, getType, grayscale, hasSurrogates, hasUtf16BOM, highSurrogate, isNewlineChar, isStandardFont, isType, isWithinBMP, last, layoutCombedText, layoutMultilineText, layoutSinglelineText, lineSplit, lineTo, lowSurrogate, mergeIntoTypedArray, mergeLines, mergeUint8Arrays, moveText, moveTo, newlineChars, nextLine, normalizeAppearance, numberToString, padStart$1 as padStart, parseDate, pdfDocEncodingDecode, pluckIndices, popGraphicsState, pushGraphicsState, radians, radiansToDegrees, range, rectangle, rectanglesAreEqual, reduceRotation, restoreDashPattern, reverseArray, rgb, rotateAndSkewTextDegreesAndTranslate, rotateAndSkewTextRadiansAndTranslate, rotateDegrees, rotateInPlace, rotateRadians, rotateRectangle, scale, setCharacterSpacing, setCharacterSqueeze, setDashPattern, setFillingCmykColor, setFillingColor, setFillingGrayscaleColor, setFillingRgbColor, setFontAndSize, setGraphicsState, setLineCap, setLineHeight, setLineJoin, setLineWidth, setStrokingCmykColor, setStrokingColor, setStrokingGrayscaleColor, setStrokingRgbColor, setTextMatrix, setTextRenderingMode, setTextRise, setWordSpacing, showText, singleQuote, sizeInBytes, skewDegrees, skewRadians, sortedUniq, square, stroke, sum, toCharCode, toCodePoint, toDegrees, toHexString, toHexStringOfMinLength, toRadians, toUint8Array, translate, typedArrayFor, utf16Decode, utf16Encode, utf8Encode, values, waitForTick };
 //# sourceMappingURL=pdf-lib.esm.js.map
